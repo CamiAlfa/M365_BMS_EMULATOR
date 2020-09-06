@@ -11,7 +11,9 @@ boolean Blinky_status = false;
 //characteristics bateria
 #define BattCap 6600
 #define BattS 10
-
+//voltaje minimo 280 =2.8v
+#define Undervolt 280
+#define Overvolt 421
 //0x55,0xAA,0x03,0x22,0x01,0x10,0x10,0xB9,0xFF
 //registros en memoria de la bateria
 #define MastertoBATT 0x22
@@ -119,6 +121,7 @@ uint16_t send_serial_byte(uint8_t data){
 //estimar porcentaje con voltaje
 uint8_t estimate_batt(uint16_t volt, uint16_t batt_s_count){
   static float filtered_volt=0; //en 0.01V
+  float instant_volt=0; //en 0.01V
   const float filter_value = 0.003;
   uint16_t cell_volt;
   uint8_t estimated_percent=0;
@@ -127,21 +130,30 @@ uint8_t estimate_batt(uint16_t volt, uint16_t batt_s_count){
     filtered_volt=volt;
   //volt value is noisy so I filter it
   filtered_volt=filtered_volt-(filter_value*(filtered_volt-(float)volt));
-
   //get cell volt
   cell_volt=filtered_volt/batt_s_count;//lo tengo en resolucion de 0.01v
-  if (cell_volt<=360){
+
+  instant_volt=(float)volt/batt_s_count;
+  if (instant_volt<=Undervolt){
+    memory[0x30]|=0x0140;//activa flag
+  }//no hay else, para que el error no se limpie
+  
+  if (instant_volt>=Overvolt){
+    memory[0x30]|=0x0200;
+  } else {
+    memory[0x30]&=~0x0200;
+  }
+  
+  if (cell_volt<=310){
     estimated_percent=0;
+  } else if (cell_volt<=350){
+    estimated_percent=(cell_volt-310)/4;
   } else if (cell_volt<=370){
-    estimated_percent=(cell_volt-360);
-  } else if (cell_volt<=375){
-    estimated_percent=((cell_volt-370)*2)+10;
-  } else if (cell_volt<=395){
-    estimated_percent=((cell_volt-375)*3)+20;
-  } else if (cell_volt<=400){
-    estimated_percent=((cell_volt-395)*2)+80;
+    estimated_percent=(cell_volt-350)+10;
+  } else if (cell_volt<=390){
+    estimated_percent=((cell_volt-370)*3)+30;
   } else if (cell_volt<=410){
-    estimated_percent=((cell_volt-400)  )+90;
+    estimated_percent=((cell_volt-390)/2)+90;
   } else {
     estimated_percent=100;
   }
@@ -174,14 +186,15 @@ void refresh(){
 }
 //
 void setup() {
+    //watchdog
+  //MCUSR = MCUSR & B11110111;
+  wdt_disable(); // Desactivar el watchdog mientras se configura, para que no se resetee
+  wdt_enable(WDTO_2S); // Configurar watchdog a 2 segundos
   // initialize serial:
   delay(1000);//espera a que todo sea estable
   Serial.begin(115200);
   pinMode(Blinky_Pin, OUTPUT);
-  //watchdog
-  //MCUSR = MCUSR & B11110111;
-  wdt_disable(); // Desactivar el watchdog mientras se configura, para que no se resetee
-  wdt_enable(WDTO_2S); // Configurar watchdog a 2 segundos
+
  
   // initialize memory
   uint16_t x;
@@ -203,8 +216,8 @@ void setup() {
   memory[BATTfabcapREG]=BattCap;
   //fecha batería 31 ago 2020
   memory[BATTdateREG]=(((uint16_t)20)<<9)|(((uint16_t)8)<<5)|(((uint16_t)31));
-  //batt OK??
-  memory[0x30]=1;
+  //batt flags
+  memory[0x30]=0x0001;
   //mah restantes
   //memory[BATTremaincapREG]=2600;//calculo
   //porcentaje
