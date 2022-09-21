@@ -1,5 +1,6 @@
 #include <avr/wdt.h>
-//this uses watchdog so arduino must have new bootloader
+//protocol 0 is for m365 protocol 1 is for ninebot
+#define Protocol 0
 //pin lectura voltaje batería 
 #define BattV_Pin A7
 //pin blinky
@@ -247,12 +248,12 @@ void loop() {
   int rcvd_count,x;
   uint16_t chksum=0;
   uint16_t outchksum;
-  static uint16_t expected=2;
   refresh();
-rcvd_count=input_buffer_head-input_buffer_tail;
-    if (rcvd_count<0) rcvd_count+=buffersize;
-    if (rcvd_count==0 && input_buffer_full==1) rcvd_count=buffersize;
-
+  static uint16_t expected=2;
+  rcvd_count=input_buffer_head-input_buffer_tail;
+  if (rcvd_count<0) rcvd_count+=buffersize;
+  if (rcvd_count==0 && input_buffer_full==1) rcvd_count=buffersize;
+#if Protocol == 0
     if (rcvd_count>=(expected+6)){
 
         if (parse_buffer(0)!=0x55 && parse_buffer(1)!=0xaa){//mensaje invalido
@@ -315,6 +316,74 @@ rcvd_count=input_buffer_head-input_buffer_tail;
         }
 
     }
+#else
+uint8_t msg_src;
+    if (rcvd_count>=(expected+9)){
+
+        if (parse_buffer(0)!=0x5a && parse_buffer(1)!=0xa5){//mensaje invalido
+            //correr buffer para tratar de sincronizar
+            flush_buffer(1);
+        } else {
+            //cabecera correcta
+            if ((parse_buffer(2)+9)<buffersize)expected=parse_buffer(2);
+            else expected=2;
+            if ((expected+9)<=rcvd_count){                   //mensaje completo
+                chksum=0;
+                for (x=expected+6;x>1;x--){                 //calculo del chksum
+                    chksum+=parse_buffer(x);
+                }
+                chksum=chksum^0xffff;
+                if (parse_buffer(expected+7)==(chksum&0xff) && parse_buffer(expected+8)==((chksum>>8)&0xff) && parse_buffer(3)==0x22){//checksum valido y dirigido a la batería
+                  wdt_reset();
+                  
+                  
+                    switch(parse_buffer(5)){//que tipo de comando recibo
+                    case 0x01://lectura aqui es lo interesante
+                        //send_serial_byte('R');
+                        outchksum=0;
+                        send_serial_byte(0x5a);
+                        send_serial_byte(0xa5);
+                        outchksum+=send_serial_byte(parse_buffer(6)); //len
+                        outchksum+=send_serial_byte(0x22);            //src this time is the battery
+                        outchksum+=send_serial_byte(parse_buffer(3)); //dst (use the src of the msg that came in)
+                        outchksum+=send_serial_byte(0x01);            //type
+                        outchksum+=send_serial_byte(parse_buffer(6)); //command
+                        outchksum+=send_serial_mem(parse_buffer(7),parse_buffer(8));
+                        outchksum^=0xffff;
+                        send_serial_16blsb(outchksum);
+                        send_serial_16bmsb(outchksum);
+                        
+                        break;
+                    case 0x03://escritura
+                        //send_serial_byte('W');
+                        break;
+                    case 0x07://tamaño fw
+                        //send_serial_byte('7');
+                        break;
+                    case 0x08://parte fw
+                        //send_serial_byte('8');
+                        break;
+                    case 0x09://tamaño fw
+                        //send_serial_byte('9');
+                        break;
+                    case 0x0a://reset
+                        //send_serial_byte('a');
+                        break;
+                    default:
+                        //send_serial_byte('z');
+                        break;
+                    }
+                    //quitar este mensaje del buffer
+                    flush_buffer(expected+9);
+                } else {                                    //checksum invalido
+                    //vaciar buffer
+                    flush_buffer(rcvd_count);
+                }
+            }
+        }
+
+    }
+#endif
 }
 
 /*
