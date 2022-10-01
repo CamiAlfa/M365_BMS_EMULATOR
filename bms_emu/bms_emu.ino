@@ -218,7 +218,7 @@ void setup() {
   //fecha batería 31 ago 2020
   memory[BATTdateREG]=(((uint16_t)20)<<9)|(((uint16_t)8)<<5)|(((uint16_t)31));
   //batt flags
-  memory[0x30]=0x0001;
+  memory[0x30]=0x0003;
   //mah restantes
   //memory[BATTremaincapREG]=2600;//calculo
   //porcentaje
