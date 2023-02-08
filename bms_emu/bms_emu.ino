@@ -188,7 +188,7 @@ void refresh(){
 //
 void setup() {
     //watchdog
-  //MCUSR = MCUSR & B11110111;
+  MCUSR = 0;
   wdt_disable(); // Desactivar el watchdog mientras se configura, para que no se resetee
   wdt_enable(WDTO_2S); // Configurar watchdog a 2 segundos
   // initialize serial:
